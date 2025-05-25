@@ -20,7 +20,8 @@ export default {
       modes: [
         { id: 'easy', label: 'Легкий' },
         { id: 'medium', label: 'Средний' },
-        { id: 'hard', label: 'Сложный' }
+        { id: 'hard', label: 'Сложный' },
+        { id: 'interval', label: 'Интервальное повторение' }
       ]
     }
   },

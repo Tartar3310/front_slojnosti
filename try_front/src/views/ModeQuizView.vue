@@ -1,28 +1,54 @@
 <template>
-  <div>
+  <div class="mode-quiz-container">
     <h1>Режим: {{ modeLabel }}</h1>
     
-    <div v-if="!quizStarted">
+    <div v-if="!quizStarted" class="start-quiz-wrapper">
       <button @click="startQuiz">Начать квиз</button>
     </div>
 
-    <div v-if="loading">Загрузка...</div>
+    <div v-if="loading" class="centered-content">
+      <p>Загрузка...</p>
+    </div>
     
-    <div v-if="currentQuiz">
+    <div v-if="currentQuiz && !currentQuiz.error" class="centered-content">
       <div class="quiz-content">
+        <!-- Отображение стадии для интервального режима -->
+        <div v-if="currentQuiz.stage !== undefined" class="stage-indicator">
+          Этап повторения: {{ currentQuiz.stage }}
+        </div>
+        
         <p><strong>Слово:</strong> {{ currentQuiz.word_eng }}</p>
+        
         <div class="options">
           <button
             v-for="(option, index) in currentQuiz.options"
             :key="index"
             @click="submitAnswer(option)"
             :disabled="answered"
+            :class="{
+              'correct-answer': answered && option === correctAnswer,
+              'wrong-answer': answered && option !== correctAnswer
+            }"
           >
             {{ option }}
+            <span v-if="answered && option === correctAnswer">✅</span>
+            <span v-if="answered && option !== correctAnswer">❌</span>
           </button>
         </div>
-        <p v-if="feedback">{{ feedback }}</p>
+        
+        <transition name="feedback">
+          <div v-if="feedback" class="feedback-container">
+            <p>{{ feedback }}</p>
+            <p v-if="nextStage" class="stage-update">
+              Новый этап: {{ nextStage }}
+            </p>
+          </div>
+        </transition>
       </div>
+    </div>
+
+    <div v-if="currentQuiz?.error" class="error-message">
+      {{ currentQuiz.error }}
     </div>
   </div>
 </template>
@@ -39,7 +65,9 @@ export default {
       quizStarted: false,
       loading: false,
       answered: false,
-      feedback: ''
+      feedback: '',
+      correctAnswer: null,
+      nextStage: null
     }
   },
   computed: {
@@ -47,7 +75,8 @@ export default {
       const labels = {
         easy: 'Легкий',
         medium: 'Средний',
-        hard: 'Сложный'
+        hard: 'Сложный',
+        interval: 'Интервальное повторение'
       }
       return labels[this.mode] || ''
     }
@@ -60,35 +89,71 @@ export default {
     async startQuiz() {
       this.quizStarted = true
       this.loading = true
+      this.currentQuiz = null
+      this.feedback = ''
+      this.nextStage = null
+      
       try {
-        const response = await axios.get(`/api/quiz/${this.mode}/${this.tg_id}`)
+        const endpoint = this.mode === 'interval' 
+          ? `/api/quiz/interval/${this.tg_id}`
+          : `/api/quiz/${this.mode}/${this.tg_id}`
+        
+        const response = await axios.get(endpoint)
         this.currentQuiz = response.data
+        
+        if (this.currentQuiz?.word_rus) {
+          this.correctAnswer = this.currentQuiz.word_rus
+        }
+        
       } catch (error) {
         console.error('Ошибка загрузки квиза:', error)
+        this.currentQuiz = { error: 'Не удалось загрузить вопрос' }
+      } finally {
+        this.loading = false
       }
-      this.loading = false
     },
 
     async submitAnswer(selectedOption) {
       this.answered = true
+      this.nextStage = null
+      
       try {
-        const response = await axios.post(`/api/quiz/${this.mode}/answer`, {
+        const endpoint = this.mode === 'interval'
+          ? '/api/quiz/interval/answer'
+          : `/api/quiz/${this.mode}/answer`
+        
+        const response = await axios.post(endpoint, {
           tg_id: this.tg_id,
           word_id: this.currentQuiz.word_id,
           selected_option: selectedOption
         })
         
+        // Обработка ответа
         this.feedback = response.data.correct ? '✅ Правильно!' : '❌ Неправильно'
         
-        if (response.data.next) {
-          this.currentQuiz = response.data.next
-        } else {
-          this.quizStarted = false
+        if (this.mode === 'interval' && response.data.next?.stage) {
+          this.nextStage = response.data.next.stage
         }
+
+        if (response.data.next && !response.data.next.error) {
+          setTimeout(() => {
+            this.currentQuiz = response.data.next
+            this.correctAnswer = response.data.next.word_rus
+            this.answered = false
+            this.feedback = ''
+            this.nextStage = null
+          }, 2000)
+        } else {
+          setTimeout(() => {
+            this.quizStarted = false
+            this.currentQuiz = null
+          }, 2000)
+        }
+        
       } catch (error) {
         console.error('Ошибка отправки ответа:', error)
+        this.feedback = 'Ошибка обработки ответа'
       }
-      this.answered = false
     }
   }
 }
@@ -96,62 +161,121 @@ export default {
 
 <style scoped>
 .mode-quiz-container {
-height: 100%;
-display: flex;
-flex-direction: column;
-align-items: center;
-padding: 24px;
-width: 100%;
-padding-bottom: 32px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  width: 100%;
+  padding-bottom: 32px;
 }
 
 .centered-content {
-text-align: center;
-width: 100%;
-display: flex;
-flex-direction: column;
-align-items: center;
-flex: 1;
-justify-content: center;
+  text-align: center;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
 }
 
 .start-quiz-wrapper {
-margin-top: 2rem;
-width: 100%;
-display: flex;
-justify-content: center;
+  margin-top: 2rem;
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 
 h1 {
-font-size: 24px;
-color: #2d3436;
-margin-bottom: 24px;
-width: 100%;
-text-align: center;
+  font-size: 24px;
+  color: #2d3436;
+  margin-bottom: 24px;
+  width: 100%;
+  text-align: center;
 }
 
 .quiz-content {
-flex: 1;
-display: flex;
-flex-direction: column;
-align-items: center;
-padding: 24px;
-width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  width: 100%;
+  max-width: 500px;
 }
 
 .options {
-display: grid;
-gap: 12px;
-width: 100%;
-max-width: 500px;
-margin: 24px 0;
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  margin: 24px 0;
 }
 
 .options button {
-padding: 16px;
-text-align: left;
-background: #ffffff;
-border: 1px solid #e0e0e0;
-box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  padding: 16px;
+  text-align: left;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.options button.correct-answer {
+  border-color: #00b894;
+  background: #f0fff4;
+}
+
+.options button.wrong-answer {
+  border-color: #d63031;
+  background: #fff5f5;
+}
+
+.feedback-container {
+  margin-top: 20px;
+  padding: 16px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.stage-indicator {
+  margin: 10px 0;
+  padding: 8px 16px;
+  background: #e3f2fd;
+  border-radius: 8px;
+  font-size: 0.9em;
+  color: #1976d2;
+}
+
+.error-message {
+  color: #d63031;
+  padding: 16px;
+  text-align: center;
+}
+
+.stage-update {
+  margin-top: 8px;
+  font-size: 0.9em;
+  color: #2e7d32;
+}
+
+.feedback-enter-active {
+  transition: all 0.3s ease;
+}
+
+.feedback-enter-from {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
+.feedback-leave-active {
+  transition: all 0.2s ease;
+}
+
+.feedback-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
 }
 </style>
