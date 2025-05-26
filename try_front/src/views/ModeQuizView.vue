@@ -12,7 +12,6 @@
     
     <div v-if="currentQuiz && !currentQuiz.error" class="centered-content">
       <div class="quiz-content">
-        <!-- Отображение стадии для интервального режима -->
         <div v-if="currentQuiz.stage !== undefined" class="stage-indicator">
           Этап повторения: {{ currentQuiz.stage }}
         </div>
@@ -92,6 +91,7 @@ export default {
       this.currentQuiz = null
       this.feedback = ''
       this.nextStage = null
+      this.correctAnswer = null
       
       try {
         const endpoint = this.mode === 'interval' 
@@ -101,9 +101,8 @@ export default {
         const response = await axios.get(endpoint)
         this.currentQuiz = response.data
         
-        if (this.currentQuiz?.word_rus) {
-          this.correctAnswer = this.currentQuiz.word_rus
-        }
+        // Устанавливаем правильный ответ из разных источников для разных режимов
+        this.correctAnswer = this.currentQuiz.correct_answer || this.currentQuiz.word_rus
         
       } catch (error) {
         console.error('Ошибка загрузки квиза:', error)
@@ -116,6 +115,7 @@ export default {
     async submitAnswer(selectedOption) {
       this.answered = true
       this.nextStage = null
+      const isCorrect = selectedOption === this.correctAnswer
       
       try {
         const endpoint = this.mode === 'interval'
@@ -128,9 +128,10 @@ export default {
           selected_option: selectedOption
         })
         
-        // Обработка ответа
-        this.feedback = response.data.correct ? '✅ Правильно!' : '❌ Неправильно'
+        // Обновляем фидбек на основе локальной проверки
+        this.feedback = isCorrect ? '✅ Правильно!' : '❌ Неправильно'
         
+        // Обработка данных для интервального режима
         if (this.mode === 'interval' && response.data.next?.stage) {
           this.nextStage = response.data.next.stage
         }
@@ -138,7 +139,8 @@ export default {
         if (response.data.next && !response.data.next.error) {
           setTimeout(() => {
             this.currentQuiz = response.data.next
-            this.correctAnswer = response.data.next.word_rus
+            // Обновляем правильный ответ для следующего вопроса
+            this.correctAnswer = response.data.next.correct_answer || response.data.next.word_rus
             this.answered = false
             this.feedback = ''
             this.nextStage = null
@@ -223,13 +225,15 @@ h1 {
 }
 
 .options button.correct-answer {
-  border-color: #00b894;
-  background: #f0fff4;
+  border-color: #00b894 !important;
+  background: #f0fff4 !important;
+  color: #005a40 !important;
 }
 
 .options button.wrong-answer {
-  border-color: #d63031;
-  background: #fff5f5;
+  border-color: #d63031 !important;
+  background: #fff5f5 !important;
+  color: #cc0000 !important;
 }
 
 .feedback-container {
