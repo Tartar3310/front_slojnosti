@@ -92,6 +92,7 @@ export default {
       this.feedback = ''
       this.nextStage = null
       this.correctAnswer = null
+      this.correctAnswer = this.currentQuiz.word_rus
       
       try {
         const endpoint = this.mode === 'interval' 
