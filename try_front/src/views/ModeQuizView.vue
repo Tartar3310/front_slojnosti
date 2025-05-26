@@ -48,6 +48,7 @@
 
     <div v-if="currentQuiz?.error" class="error-message">
       {{ currentQuiz.error }}
+      <button @click="quizStarted = false">Назад</button>
     </div>
   </div>
 </template>
@@ -92,7 +93,6 @@ export default {
       this.feedback = ''
       this.nextStage = null
       this.correctAnswer = null
-      this.correctAnswer = this.currentQuiz.word_rus
       
       try {
         const endpoint = this.mode === 'interval' 
@@ -100,14 +100,22 @@ export default {
           : `/api/quiz/${this.mode}/${this.tg_id}`
         
         const response = await axios.get(endpoint)
-        this.currentQuiz = response.data
         
-        // Устанавливаем правильный ответ из разных источников для разных режимов
-        this.correctAnswer = this.currentQuiz.correct_answer || this.currentQuiz.word_rus
+        if (!response.data?.word_eng || !response.data?.options) {
+          throw new Error('Некорректный ответ сервера')
+        }
+        
+        this.currentQuiz = response.data
+        this.correctAnswer = this.currentQuiz.word_rus
+        
+        if (this.currentQuiz.options.length < 2) {
+          throw new Error('Недостаточно вариантов ответа')
+        }
         
       } catch (error) {
         console.error('Ошибка загрузки квиза:', error)
         this.currentQuiz = { error: 'Не удалось загрузить вопрос' }
+        this.quizStarted = false
       } finally {
         this.loading = false
       }
@@ -123,39 +131,29 @@ export default {
           ? '/api/quiz/interval/answer'
           : `/api/quiz/${this.mode}/answer`
         
-        const response = await axios.post(endpoint, {
+        await axios.post(endpoint, {
           tg_id: this.tg_id,
           word_id: this.currentQuiz.word_id,
           selected_option: selectedOption
         })
         
-        // Обновляем фидбек на основе локальной проверки
         this.feedback = isCorrect ? '✅ Правильно!' : '❌ Неправильно'
-        
-        // Обработка данных для интервального режима
-        if (this.mode === 'interval' && response.data.next?.stage) {
-          this.nextStage = response.data.next.stage
-        }
 
-        if (response.data.next && !response.data.next.error) {
-          setTimeout(() => {
-            this.currentQuiz = response.data.next
-            // Обновляем правильный ответ для следующего вопроса
-            this.correctAnswer = response.data.next.correct_answer || response.data.next.word_rus
+        // Задержка перед загрузкой нового вопроса
+        setTimeout(async () => {
+          try {
+            await this.startQuiz() // Перезагружаем новый вопрос
             this.answered = false
             this.feedback = ''
-            this.nextStage = null
-          }, 2000)
-        } else {
-          setTimeout(() => {
+          } catch (error) {
             this.quizStarted = false
-            this.currentQuiz = null
-          }, 2000)
-        }
+          }
+        }, 2000)
         
       } catch (error) {
         console.error('Ошибка отправки ответа:', error)
         this.feedback = 'Ошибка обработки ответа'
+        this.quizStarted = false
       }
     }
   }
